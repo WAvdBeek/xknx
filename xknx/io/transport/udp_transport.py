@@ -12,6 +12,8 @@ from collections.abc import Callable
 import logging
 import socket
 import sys
+import time
+import struct
 
 from xknx.exceptions import CommunicationError, CouldNotParseKNXIP
 from xknx.knxip import HPAI, KNXIPFrame
