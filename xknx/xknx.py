@@ -77,6 +77,7 @@ class XKNX:
         self.started = asyncio.Event()
         self.devices = Devices(started=self.started)
         self.version = VERSION
+        self.m_loop = None
 
         GroupAddress.address_format = address_format  # for global string representation
         if log_directory is not None:
@@ -154,12 +155,12 @@ class XKNX:
         def sigint_handler() -> None:
             """End loop."""
             self.sigint_received.set()
-
+        self.m_loop = asyncio.get_running_loop()
         if platform == "win32":
             logger.warning("Windows does not support signals")
         else:
-            loop = asyncio.get_running_loop()
-            loop.add_signal_handler(signal.SIGINT, sigint_handler)
+            self.m_loop = asyncio.get_running_loop()
+            self.m_loop.add_signal_handler(signal.SIGINT, sigint_handler)
         logger.warning("Press Ctrl+C to stop")
         await self.sigint_received.wait()
 

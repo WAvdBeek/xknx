@@ -22,6 +22,14 @@ raw_socket_logger = logging.getLogger("xknx.raw_socket")
 logger = logging.getLogger("xknx.log")
 knx_logger = logging.getLogger("xknx.knx")
 
+g_ipaddress = None
+g_port = None
+
+def udp_set_my_own_address(ipaddress, port):
+    global g_ipaddress
+    global g_port
+    g_ipaddress = ipaddress
+    g_port = port
 
 class UDPTransport(KNXIPTransport):
     """Class for handling (sending and receiving) UDP packets."""
@@ -70,6 +78,7 @@ class UDPTransport(KNXIPTransport):
         self.local_addr = local_addr
         self.remote_addr = remote_addr
         self.multicast = multicast
+        print("my local address ==>>>>>", self.local_addr)
 
         self.callbacks = []
         self.transport: asyncio.DatagramTransport | None = None
@@ -94,6 +103,16 @@ class UDPTransport(KNXIPTransport):
                     source[1],
                     knxipframe,
                 )
+                if g_ipaddress is not None:
+                    if g_port is not None:
+                        # source[0] == string
+                        # source[1] == int
+                        if g_ipaddress == source[0]:
+                            if g_port == source[1]:
+                                # received data from my self
+                                return
+                    elif g_ipaddress == source[0]:
+                        return
                 self.handle_knxipframe(knxipframe, HPAI(*source))
 
     @staticmethod
@@ -105,15 +124,40 @@ class UDPTransport(KNXIPTransport):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setblocking(False)
 
+        print(" own ip :", own_ip)
+        print(" remote_addr :", remote_addr)
+        print(" remote_addr[0] :", remote_addr[0])
         sock.setsockopt(
             socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(own_ip)
         )
-        sock.setsockopt(
-            socket.IPPROTO_IP,
-            socket.IP_ADD_MEMBERSHIP,
-            socket.inet_aton(remote_addr[0]) + socket.inet_aton(own_ip),
-        )
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        #https://pymotw.com/2/socket/multicast.html#receiving-multicast-messages
+        #sock.setsockopt(
+        #    socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(remote_addr[0])
+        #)
+        
+        # old stuff
+        #sock.setsockopt(
+        #    socket.IPPROTO_IP,
+        #    socket.IP_ADD_MEMBERSHIP,
+        #    socket.inet_aton(remote_addr[0]) + socket.inet_aton(own_ip),
+        #)
+        # data from the internet, not working..
+        # Tell the operating system to add the socket to the multicast group
+        # on all interfaces.
+        #group = socket.inet_aton(str(remote_addr[0]))
+        #mreq = struct.pack('4sL', group, socket.INADDR_ANY)
+        
+        #
+        # working...
+        # 0.0.0.0 == INADDR_ANY
+        #sock.setsockopt(
+        #    socket.IPPROTO_IP,
+        #    socket.IP_ADD_MEMBERSHIP,
+        #    socket.inet_aton(remote_addr[0]) + socket.inet_aton('0.0.0.0'),
+        #)
+        
+        ttl = struct.pack('b', 63)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
 
         if sys.platform == "win32":
             # '' represents INADDR_ANY
@@ -127,9 +171,16 @@ class UDPTransport(KNXIPTransport):
         else:
             sock.bind((remote_addr[0], remote_addr[1]))
 
+        #setmembershipafterbind
+        #group = socket.inet_aton(str(remote_addr[0]))
+        #mreq = struct.pack('4sL', group, socket.INADDR_ANY)
+        print("setting membership..")
+        req = struct.pack("=4s4s", socket.inet_aton(remote_addr[0]), socket.inet_aton(own_ip))
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, req)
+
         # ignore multicast datagrams sent by the host itself
         # don't use when running multiple routing instances on a single host (interface)
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
+        #sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 0)
 
         return sock
 
@@ -156,7 +207,7 @@ class UDPTransport(KNXIPTransport):
     def send(self, knxipframe: KNXIPFrame, addr: tuple[str, int] | None = None) -> None:
         """Send KNXIPFrame to socket."""
         _addr = addr or self.remote_addr
-        knx_logger.debug("Sending to %s:%s: %s", _addr[0], _addr[1], knxipframe)
+        knx_logger.debug("udp transport: Sending to %s:%s: %s", _addr[0], _addr[1], knxipframe)
         if self.transport is None:
             raise CommunicationError("Transport not connected")
 
@@ -166,6 +217,8 @@ class UDPTransport(KNXIPTransport):
                     "Multicast send to specific address is invalid. %s",
                     knxipframe,
                 )
+            print("udp transport (send multicast)  ", knxipframe.to_knx())
             self.transport.sendto(knxipframe.to_knx(), self.remote_addr)
         else:
+            print("udp transport (send)  ", knxipframe.to_knx())
             self.transport.sendto(knxipframe.to_knx(), addr=_addr)
