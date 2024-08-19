@@ -26,12 +26,18 @@ knx_logger = logging.getLogger("xknx.knx")
 
 g_ipaddress = None
 g_port = None
+g_ttl = 63
 
 def udp_set_my_own_address(ipaddress, port):
     global g_ipaddress
     global g_port
     g_ipaddress = ipaddress
     g_port = port
+    
+
+def udp_set_ttl(ttl):
+    global g_ttl
+    g_ttl = ttl
 
 class UDPTransport(KNXIPTransport):
     """Class for handling (sending and receiving) UDP packets."""
@@ -158,7 +164,7 @@ class UDPTransport(KNXIPTransport):
         #    socket.inet_aton(remote_addr[0]) + socket.inet_aton('0.0.0.0'),
         #)
         
-        ttl = struct.pack('b', 63)
+        ttl = struct.pack('b', g_ttl)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
 
         if sys.platform == "win32":
